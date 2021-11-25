@@ -22,9 +22,13 @@ default_logger = logging.getLogger('aiohttp-json-rpc.client')
 class JsonRpcClient:
     _client_id = 0
 
-    def __init__(self, logger=default_logger, url=None, cookies=None,
-                 loop=None):
-
+    def __init__(
+        self,
+        logger=default_logger,
+        url=None,
+        cookies=None,
+        loop=None,
+    ):
         self._pending = {}
         self._msg_id = 0
         self._logger = logger
@@ -38,11 +42,19 @@ class JsonRpcClient:
         JsonRpcClient._client_id += 1
 
     def add_methods(self, *methods):
-        for prefix, method in methods:
+        for row in methods:
+            separator = '__'
+            if len(row) == 2:
+                prefix, method = row
+            elif len(row) == 3:
+                prefix, separator, method = row
+            else:
+                raise ValueError('wrong method description')
+
             name = method.__name__
 
             if prefix:
-                name = '{}__{}'.format(prefix, name)
+                name = '{}{}{}'.format(prefix, separator, name)
 
             self._methods[name] = method
 
@@ -50,12 +62,12 @@ class JsonRpcClient:
         if not msg.data['method'] in self._methods:
             response = encode_error(
                 exceptions.RpcMethodNotFoundError(
-                    msg_id=msg.data.get('id', None)))
+                    msg_id=msg.data.get('id'),
+                ),
+            )
 
         else:
-            result = await self._methods[msg.data['method']](
-                msg.data['params'])
-
+            result = await self._methods[msg.data['method']](msg.data['params'])
             response = encode_result(msg.data['id'], result)
 
         self._logger.debug('#%s: > %s', self._id, response)
@@ -74,38 +86,40 @@ class JsonRpcClient:
                 if raw_msg.type != aiohttp.WSMsgType.text:
                     continue
 
-                msg = decode_msg(raw_msg.data)
+                msgs = decode_msg(raw_msg.data)
+                if not isinstance(msgs, list):
+                    msgs = [msgs]
 
                 # requests
-                if msg.type == JsonRpcMsgTyp.REQUEST:
-                    self._logger.debug('#%s: handled as request', self._id)
-                    await self._handle_request(msg)
-                    self._logger.debug('#%s: handled', self._id)
-
-                # notifications
-                elif msg.type == JsonRpcMsgTyp.NOTIFICATION:
-                    self._logger.debug('#%s: handled as notification', self._id)  # NOQA
-
-                    if msg.data['method'] in self._handler:
-                        await self._handler[msg.data['method']](msg.data)
-
+                for msg in msgs:
+                    if msg.type == JsonRpcMsgTyp.REQUEST:
+                        self._logger.debug('#%s: handled as request', self._id)
+                        await self._handle_request(msg)
                         self._logger.debug('#%s: handled', self._id)
 
-                    else:
-                        self._logger.debug('#%s: no handler found', self._id)
+                    # notifications
+                    elif msg.type == JsonRpcMsgTyp.NOTIFICATION:
+                        self._logger.debug('#%s: handled as notification', self._id)  # NOQA
 
-                # results
-                elif msg.type == JsonRpcMsgTyp.RESULT:
-                    if msg.data['id'] in self._pending:
-                        self._pending[msg.data['id']].set_result(
-                            msg.data['result'])
+                        if msg.data['method'] in self._handler:
+                            await self._handler[msg.data['method']](msg.data)
+                            self._logger.debug('#%s: handled', self._id)
 
-                # errors
-                elif msg.type == JsonRpcMsgTyp.ERROR:
-                    if msg.data['id'] in self._pending:
-                        self._pending[msg.data['id']].set_exception(
-                            decode_error(msg)
-                        )
+                        else:
+                            self._logger.debug('#%s: no handler found', self._id)
+
+                    # results
+                    elif msg.type == JsonRpcMsgTyp.RESULT:
+                        if msg.data['id'] in self._pending:
+                            self._pending[msg.data['id']].set_result(
+                                msg.data['result'])
+
+                    # errors
+                    elif msg.type == JsonRpcMsgTyp.ERROR:
+                        if msg.data['id'] in self._pending:
+                            self._pending[msg.data['id']].set_exception(
+                                decode_error(msg),
+                            )
 
             except asyncio.CancelledError:
                 raise
@@ -129,10 +143,17 @@ class JsonRpcClient:
                 await self._session.close()
         self._logger.debug('#%s: ws connected', self._id)
 
-        self._message_worker = asyncio.ensure_future(self._handle_msgs())
+        asyncio.ensure_future(self._handle_msgs())
 
-    async def connect(self, host, port, url='/', protocol='ws', cookies=None,
-                      ssl=None):
+    async def connect(
+        self,
+        host,
+        port,
+        url='/',
+        protocol='ws',
+        cookies=None,
+        ssl=None,
+    ):
         if ssl is not None and protocol == 'ws':
             protocol = 'wss'
         url = URL.build(scheme=protocol, host=host, port=port, path=url)
@@ -142,6 +163,7 @@ class JsonRpcClient:
         if self._autoconnect_url is None:
             return
 
+        # TODO: rewrite this
         try:
             self._ws
             return
@@ -258,19 +280,16 @@ class JsonRpcMethod:
         return {
             'params': {
                 'args': self._args,
-                'kwargs': self._kwargs
+                'kwargs': self._kwargs,
             }
         }
 
     def __await__(self):
-        return (
-            self._rpc_client.
-            call(
-                self._rpc_method,
-                *self._await_args,
-                **self._await_kwargs,
-            ).__await__()
-        )
+        return self._rpc_client.call(
+            self._rpc_method,
+            *self._await_args,
+            **self._await_kwargs,
+        ).__await__()
 
     def __call__(self, *args, **kwargs):
         return self.__class__(self._rpc_client, self._rpc_method, args, kwargs)
@@ -333,7 +352,8 @@ class RawJsonRpcMethod(JsonRpcMethod):
 
     def __call__(self, params=None, id=None, timeout=None):
         return self.__class__(
-            self._rpc_client, self._rpc_method,
+            self._rpc_client,
+            self._rpc_method,
             kwargs={
                 'params': params,
                 'id': id,

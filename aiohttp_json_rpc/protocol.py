@@ -33,6 +33,22 @@ def decode_msg(raw_msg):
                 "params": [42, 23]
             }
 
+        Batch request:
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "subtract",
+                    "params": [42, 23]
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "subtract",
+                    "params": [42, 17]
+                }
+            ]
+
         Notification:
             {
                 "jsonrpc": "2.0",
@@ -61,21 +77,24 @@ def decode_msg(raw_msg):
 
     try:
         msg_data = json.loads(raw_msg)
-
     except ValueError:
         raise RpcParseError
 
-    # check jsonrpc version
-    if 'jsonrpc' not in msg_data or not msg_data['jsonrpc'] == JSONRPC:
-        raise RpcInvalidRequestError(msg_id=msg_data.get('id', None))
+    # TODO: inconvenient data conversion
+    if isinstance(msg_data, list):
+        return [decode_msg(json.dumps(msg_piece)) for msg_piece in msg_data]
 
-    # check requierd fields
-    if not len(set(['error', 'result', 'method']) & set(msg_data)) == 1:
-        raise RpcInvalidRequestError(msg_id=msg_data.get('id', None))
+    # check jsonrpc version
+    if 'jsonrpc' not in msg_data or msg_data['jsonrpc'] != JSONRPC:
+        raise RpcInvalidRequestError(msg_id=msg_data.get('id'))
+
+    # check required fields
+    if len({'error', 'result', 'method'} & set(msg_data)) != 1:
+        raise RpcInvalidRequestError(msg_id=msg_data.get('id'))
 
     # find message type
     if 'method' in msg_data:
-        if 'id' in msg_data and msg_data['id'] is not None:
+        if msg_data.get('id') is not None:
             msg_type = JsonRpcMsgTyp.REQUEST
 
         else:
@@ -84,14 +103,14 @@ def decode_msg(raw_msg):
     elif 'result' in msg_data:
         msg_type = JsonRpcMsgTyp.RESULT
 
-    elif 'error' in msg_data:
+    else:
         msg_type = JsonRpcMsgTyp.ERROR
 
     # Request Objects
     if msg_type in (JsonRpcMsgTyp.REQUEST, JsonRpcMsgTyp.NOTIFICATION):
 
         # 'method' fields have to be strings
-        if type(msg_data['method']) is not str:
+        if not isinstance(msg_data['method'], str):
             raise RpcInvalidRequestError
 
         # set empty 'params' if not set
@@ -107,22 +126,22 @@ def decode_msg(raw_msg):
 
         # every Response object has to define an id
         if 'id' not in msg_data:
-            raise RpcInvalidRequestError(msg_id=msg_data.get('id', None))
+            raise RpcInvalidRequestError(msg_id=msg_data.get('id'))
 
     # Error objects
     if msg_type == JsonRpcMsgTyp.ERROR:
 
         # the error field has to be a dict
-        if type(msg_data['error']) is not dict:
-            raise RpcInvalidRequestError(msg_id=msg_data.get('id', None))
+        if not isinstance(msg_data['error'], dict):
+            raise RpcInvalidRequestError(msg_id=msg_data.get('id'))
 
         # the error field has to define 'code' and 'message'
-        if not len(set(['code', 'message']) & set(msg_data['error'])) == 2:
-            raise RpcInvalidRequestError(msg_id=msg_data.get('id', None))
+        if len({'code', 'message'} & set(msg_data['error'])) != 2:
+            raise RpcInvalidRequestError(msg_id=msg_data.get('id'))
 
         # the error code has to be in the specified ranges
-        if not msg_data['error']['code'] in RpcError.lookup_table.keys():
-            raise RpcInvalidRequestError(msg_id=msg_data.get('id', None))
+        if msg_data['error']['code'] not in RpcError.lookup_table.keys():
+            raise RpcInvalidRequestError(msg_id=msg_data.get('id'))
 
         # set empty 'data' field if not set
         if 'data' not in msg_data['error']:
@@ -189,11 +208,10 @@ def encode_error(error, id=None):
 
 def decode_error(msg: JsonRpcMsg):
     error_code = msg.data['error']['code']
-
     exception = error_code_to_exception(error_code)
 
     return exception(
-        msg_id=msg.data.get('id', None),
+        msg_id=msg.data.get('id'),
         data=msg.data,
         error_code=error_code,
         message=msg.data['error'].get('message', ''),

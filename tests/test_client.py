@@ -17,25 +17,28 @@ async def test_client_connect_disconnect(rpc_context):
 
     client = JsonRpcClient(
         url='ws://{host}:{port}{url}'.format(
-            host=rpc_context.host, port=rpc_context.port,
+            host=rpc_context.host,
+            port=rpc_context.port,
             url=rpc_context.url,
-        )
+        ),
     )
 
     await client.connect_url(
         'ws://{host}:{port}{url}'.format(
-            host=rpc_context.host, port=rpc_context.port,
+            host=rpc_context.host,
+            port=rpc_context.port,
             url=rpc_context.url,
-        )
+        ),
     )
     assert await client.call('ping') == 'pong'
     await client.disconnect()
     assert not hasattr(client, '_ws')
 
     await client.connect(
-            host=rpc_context.host, port=rpc_context.port,
-            url=rpc_context.url,
-        )
+        host=rpc_context.host,
+        port=rpc_context.port,
+        url=rpc_context.url,
+    )
     assert await client.call('ping') == 'pong'
     await client.disconnect()
 
@@ -50,9 +53,10 @@ async def test_client_autoconnect(rpc_context):
 
     client = JsonRpcClient(
         url='ws://{host}:{port}{url}'.format(
-            host=rpc_context.host, port=rpc_context.port,
+            host=rpc_context.host,
+            port=rpc_context.port,
             url=rpc_context.url,
-        )
+        ),
     )
 
     assert not hasattr(client, '_ws')
@@ -69,16 +73,19 @@ async def test_client_autoconnect(rpc_context):
 async def test_client_connection_failure(rpc_context, unused_tcp_port_factory):
     client = JsonRpcClient(
         url='ws://{host}:{port}{url}'.format(
-            host=rpc_context.host, port=rpc_context.port,
+            host=rpc_context.host,
+            port=rpc_context.port,
             url=rpc_context.url,
-        )
+        ),
     )
 
     with pytest.raises(aiohttp.ClientConnectionError):
         await client.connect_url(
             'ws://{host}:{port}{url}'.format(
-                host=rpc_context.host, port=unused_tcp_port_factory(),
+                host=rpc_context.host,
+                port=unused_tcp_port_factory(),
                 url=rpc_context.url,
-            )
+            ),
         )
+
     assert client._session.closed is True

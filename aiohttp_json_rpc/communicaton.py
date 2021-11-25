@@ -16,7 +16,7 @@ class JsonRpcRequest:
     @property
     def params(self):
         if 'params' not in self.msg.data:
-            self.msg.data['params'] = None
+            self.params = None
 
         return self.msg.data['params']
 
@@ -64,8 +64,10 @@ class JsonRpcRequest:
         await self.http_request.ws.send_str(request)
 
         if timeout:
-            await asyncio.wait_for(self.http_request.pending[msg_id],
-                                   timeout=timeout)
+            await asyncio.wait_for(
+                self.http_request.pending[msg_id],
+                timeout=timeout,
+            )
 
         else:
             await self.http_request.pending[msg_id]
@@ -76,8 +78,11 @@ class JsonRpcRequest:
         return result
 
     async def confirm(self, message='', timeout=None):
-        return await self.call('confirm', params={'message': message},
-                               timeout=timeout)
+        return await self.call(
+            'confirm',
+            params={'message': message},
+            timeout=timeout,
+        )
 
     async def send_notification(self, method, params=None):
         await self.ws.send_str(encode_notification(method, params))
@@ -85,9 +90,17 @@ class JsonRpcRequest:
 
 class SyncJsonRpcRequest(JsonRpcRequest):
     def call(self, method, params=None, wait=True):
-        return self.rpc.worker_pool.run_sync(super().call, method,
-                                             params, wait=wait)
+        return self.rpc.worker_pool.run_sync(
+            super().call,
+            method,
+            params,
+            wait=wait,
+        )
 
     def send_notification(self, method, params=None, wait=True):
-        self.rpc.worker_pool.run_sync(super().send_notification, method,
-                                      params, wait=wait)
+        self.rpc.worker_pool.run_sync(
+            super().send_notification,
+            method,
+            params,
+            wait=wait,
+        )

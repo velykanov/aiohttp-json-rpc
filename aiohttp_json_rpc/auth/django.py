@@ -14,6 +14,8 @@ from . import AuthBackend
 
 
 class DjangoAuthBackend(AuthBackend):
+    _allowed_actions = ('view', 'add', 'change', 'delete')
+
     def __init__(self, generic_orm_methods=False):
         self.generic_orm_methods = generic_orm_methods
         self.session_engine = import_module(settings.SESSION_ENGINE)
@@ -49,22 +51,26 @@ class DjangoAuthBackend(AuthBackend):
 
             return user.is_authenticated
 
-        if hasattr(method, 'login_required') and (
-           not request.user.is_active or
-           not _user_is_authenticated(request.user)):
+        if (
+            hasattr(method, 'login_required') and (
+                not request.user.is_active or
+                not _user_is_authenticated(request.user)
+            )
+        ):
             return False
 
         # permission check
-        if(hasattr(method, 'permissions_required') and
-           not request.user.is_superuser and
-           not request.user.has_perms(method.permissions_required)):
+        if (
+            hasattr(method, 'permissions_required') and
+            not request.user.is_superuser and
+            not request.user.has_perms(method.permissions_required)
+        ):
             return False
 
         # user tests
         if hasattr(method, 'tests') and not request.user.is_superuser:
-            for test in method.tests:
-                if not test(request.user):
-                    return False
+            if any(not test(request.user) for test in method.tests):
+                return False
 
         return True
 
@@ -127,30 +133,22 @@ class DjangoAuthBackend(AuthBackend):
             for field_name, value in params.items():
                 setattr(model_object, field_name, value)
 
-            model_object.save()
+            model_object.save(update_fields=params.keys())
 
             return True
 
         except KeyError:
             raise RpcInvalidParamsError
 
+    # TODO: think of separator support instead of bare '__'
     async def handle_orm_call(self, request):
         method_name = request.msg.data['method'].split('__')[1]
         app_label, _ = method_name.split('.')
         action, model_name = _.split('_')
+        assert action in self._allowed_actions
         model = apps.get_model('{}.{}'.format(app_label, model_name))
 
-        if action == 'view':
-            return await self._model_view(request, model)
-
-        elif action == 'add':
-            return await self._model_add(request, model)
-
-        elif action == 'change':
-            return await self._model_change(request, model)
-
-        elif action == 'delete':
-            return await self._model_delete(request, model)
+        return await getattr(self, '_model_{}'.format(action))(request, model)
 
     # login / logout
     async def login(self, request):
@@ -158,11 +156,10 @@ class DjangoAuthBackend(AuthBackend):
             username = str(request.params['username'])
             password = str(request.params['password'])
 
-        except(KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError):
             raise RpcInvalidParamsError
 
         user = authenticate(username=username, password=password)
-
         if not user:
             return False
 
@@ -211,9 +208,10 @@ class DjangoAuthBackend(AuthBackend):
                 action = permission_name.split('.')[1].split('_')[0]
                 method_name = 'db__{}'.format(permission_name)
 
-                if action in ('view', 'add', 'change', 'delete', ):
+                if action in self._allowed_actions:
                     request.methods[method_name] = JsonRpcMethod(
-                        self.handle_orm_call)
+                        self.handle_orm_call,
+                    )
 
         # rpc defined methods
         for name, method in request.rpc.methods.items():

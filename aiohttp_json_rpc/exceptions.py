@@ -16,11 +16,20 @@ class RpcError(Exception):
     ERROR_CODE = None
     _lookup_table = None
 
-    def __init__(self, *args, msg_id=None, data=None, error_code=None,
-                 message='', **kwargs):
+    def __init__(
+        self,
+        *args,
+        msg_id=None,
+        data=None,
+        error_code=None,
+        message='',
+        **kwargs,
+    ):
 
-        if(error_code is not None and
-           error_code not in self.lookup_table.keys()):
+        if(
+            error_code is not None and
+            error_code not in self.lookup_table.keys()
+        ):
             raise ValueError('error code out of range')
 
         self.data = data
@@ -38,16 +47,15 @@ class RpcError(Exception):
         logger.debug('regenerating error lookup table')
 
         cls._lookup_table = {
+            -32600: RpcInvalidRequestError,
+            -32601: RpcMethodNotFoundError,
+            -32602: RpcInvalidParamsError,
+            -32603: RpcInternalError,
+            -32700: RpcParseError,
             **{
-                -32600: RpcInvalidRequestError,
-                -32601: RpcMethodNotFoundError,
-                -32602: RpcInvalidParamsError,
-                -32603: RpcInternalError,
-                -32700: RpcParseError,
-
-            },
-            **{error_code: RpcGenericServerDefinedError
-               for error_code in range(-32000, -32100, -1)}
+                error_code: RpcGenericServerDefinedError
+                for error_code in range(-32000, -32100, -1),
+            }
         }
 
         for subclass in cls.__subclasses__():
@@ -55,8 +63,10 @@ class RpcError(Exception):
                 continue
 
             if subclass.ERROR_CODE not in cls._lookup_table.keys():
-                logger.error('error code %s is unspecified',
-                             subclass.ERROR_CODE)
+                logger.error(
+                    'error code %s is unspecified',
+                    subclass.ERROR_CODE,
+                )
 
                 continue
 

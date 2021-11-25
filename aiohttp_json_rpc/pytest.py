@@ -38,14 +38,20 @@ class RpcContext(object):
         self.clients = []
 
     async def make_clients(self, count, cookies=None):
-        clients = [JsonRpcClient() for i in range(count)]
+        clients = [JsonRpcClient() for _ in range(count)]
 
         await asyncio.gather(
-            *[i.connect(self.host, self.port, url=self.url,
-                        cookies=cookies or {}) for i in clients]
+            *[
+                client.connect(
+                    self.host,
+                    self.port,
+                    url=self.url,
+                    cookies=cookies or {},
+                ) for client in clients
+            ]
         )
 
-        self.clients += clients
+        self.clients.extend(clients)
 
         return clients
 
@@ -56,12 +62,19 @@ class RpcContext(object):
 
     async def finish_connections(self):
         await asyncio.gather(
-            *[i.disconnect() for i in self.clients]
+            *[client.disconnect() for client in self.clients]
         )
 
 
-def gen_rpc_context(loop, host, port, rpc, rpc_route, routes=(),
-                    RpcContext=RpcContext):
+def gen_rpc_context(
+        loop,
+        host,
+        port,
+        rpc,
+        rpc_route,
+        routes=(),
+        RpcContext=RpcContext,
+):
     # make app
     app = Application()
 
@@ -77,12 +90,12 @@ def gen_rpc_context(loop, host, port, rpc, rpc_route, routes=(),
     loop.run_until_complete(site.start())
 
     # create RpcContext
-    rpc_context = RpcContext(app, rpc, host, port, rpc_route[1])
+    _rpc_context = RpcContext(app, rpc, host, port, rpc_route[1])
 
-    yield rpc_context
+    yield _rpc_context
 
     # teardown clients
-    loop.run_until_complete(rpc_context.finish_connections())
+    loop.run_until_complete(_rpc_context.finish_connections())
 
     # teardown server
     loop.run_until_complete(runner.cleanup())
@@ -103,9 +116,11 @@ def django_rpc_context(db, event_loop, unused_tcp_port):
     from aiohttp_json_rpc.auth.django import DjangoAuthBackend
     from aiohttp_wsgi import WSGIHandler
 
-    rpc = JsonRpc(loop=event_loop,
-                  auth_backend=DjangoAuthBackend(generic_orm_methods=True),
-                  max_workers=4)
+    rpc = JsonRpc(
+        loop=event_loop,
+        auth_backend=DjangoAuthBackend(generic_orm_methods=True),
+        max_workers=4,
+    )
 
     rpc_route = ('*', '/rpc', rpc.handle_request)
 
@@ -113,9 +128,14 @@ def django_rpc_context(db, event_loop, unused_tcp_port):
         ('*', '/{path_info:.*}', WSGIHandler(django_wsgi_application)),
     ]
 
-    for context in gen_rpc_context(event_loop, 'localhost',
-                                   unused_tcp_port, rpc, rpc_route,
-                                   routes):
+    for context in gen_rpc_context(
+        event_loop,
+        'localhost',
+        unused_tcp_port,
+        rpc,
+        rpc_route,
+        routes,
+    ):
         yield context
 
 
@@ -123,8 +143,12 @@ def django_rpc_context(db, event_loop, unused_tcp_port):
 def django_staff_user(db):
     from django.contrib.auth import get_user_model
 
-    user = get_user_model().objects.create(username='admin', is_active=True,
-                                           is_staff=True, is_superuser=True)
+    user = get_user_model().objects.create(
+        username='admin',
+        is_active=True,
+        is_staff=True,
+        is_superuser=True,
+    )
 
     user.set_password('admin')
     user.save()

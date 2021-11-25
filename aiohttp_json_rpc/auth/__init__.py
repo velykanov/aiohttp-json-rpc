@@ -1,5 +1,9 @@
-class AuthBackend:
-    pass
+import abc
+
+
+class AuthBackend(abc.ABC):
+    def prepare_request(self, request):
+        raise NotImplementedError
 
 
 class DummyAuthBackend(AuthBackend):
@@ -10,10 +14,10 @@ class DummyAuthBackend(AuthBackend):
 
 
 def login_required(function=None):
-    def decorator(function):
-        function.login_required = True
+    def decorator(f):
+        f.login_required = True
 
-        return function
+        return f
 
     if function:
         return decorator(function)
@@ -23,7 +27,7 @@ def login_required(function=None):
 
 def permission_required(permission):
     def decorator(function):
-        if not type(permission) == str:
+        if not isinstance(permission, str):
             raise ValueError('permission has to be a string')
 
         if not hasattr(function, 'permissions_required'):

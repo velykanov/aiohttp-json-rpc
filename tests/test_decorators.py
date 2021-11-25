@@ -8,7 +8,8 @@ async def test_raw_responses(rpc_context):
     @raw_response
     async def ping(request):
         return '{{"jsonrpc": "2.0", "result": "pong", "id": {}}}'.format(
-            request.msg.data['id'])
+            request.msg.data['id'],
+        )
 
     rpc_context.rpc.add_methods(
         ('', ping),

@@ -45,8 +45,10 @@ class JsonRpcMethod:
 
         self.defaults = copy(self.argspec.defaults)
 
-        self.args = [i for i in self.argspec.args
-                     if i not in self.CREDENTIAL_KEYS + ['self']]
+        self.args = [
+            i for i in self.argspec.args
+            if i not in self.CREDENTIAL_KEYS + ['self']
+        ]
 
         # required args
         self.required_args = copy(self.args)
@@ -59,8 +61,7 @@ class JsonRpcMethod:
 
         # optional args
         self.optional_args = [
-            i for i in (self.args[len(self.args or []) -
-                        len(self.defaults or ()):])
+            i for i in self.args[len(self.args) - len(self.defaults or ()):]
             if i not in self.CREDENTIAL_KEYS + ['self']
         ]
 
@@ -89,18 +90,20 @@ class JsonRpcMethod:
 
     async def __call__(self, http_request, rpc, msg):
         params = msg.data['params']
-        method_params = dict()
+        method_params = {}
 
         # convert args
         if params is None:
             params = {}
 
-        if type(params) not in (dict, list):
+        if not isinstance(params, (dict, list)):
             params = [params]
 
-        if type(params) == list:
-            params = {self.args[i]: v for i, v in enumerate(params)
-                      if i < len(self.args)}
+        if isinstance(params, list):
+            params = {
+                self.args[i]: v for i, v in enumerate(params)
+                if i < len(self.args)
+            }
 
         # required args
         for i in self.required_args:
@@ -120,6 +123,7 @@ class JsonRpcMethod:
                     validator_list = [validator_list]
 
                 for validator in validator_list:
+                    # TODO: this validation could be made based on annotations
                     if isinstance(validator, type):
                         if not isinstance(method_params[arg_name], validator):
                             raise RpcInvalidParamsError(message="'{}' has to be '{}'".format(arg_name, validator.__name__))  # NOQA
@@ -132,11 +136,17 @@ class JsonRpcMethod:
         if 'request' in self.argspec.args:
             if asyncio.iscoroutinefunction(self.method):
                 method_params['request'] = JsonRpcRequest(
-                    rpc=rpc, http_request=http_request, msg=msg)
+                    rpc=rpc,
+                    http_request=http_request,
+                    msg=msg,
+                )
 
             else:
                 method_params['request'] = SyncJsonRpcRequest(
-                    rpc=rpc, http_request=http_request, msg=msg)
+                    rpc=rpc,
+                    http_request=http_request,
+                    msg=msg,
+                )
 
         if 'worker_pool' in self.argspec.args:
             method_params['worker_pool'] = rpc.worker_pool
@@ -145,14 +155,17 @@ class JsonRpcMethod:
         if asyncio.iscoroutinefunction(self.method):
             return await self.method(**method_params)
 
-        else:
-            return await rpc.worker_pool.run(self.method, **method_params)
+        return await rpc.worker_pool.run(self.method, **method_params)
 
 
 class JsonRpc(object):
-    def __init__(self, loop=None, max_workers=0, auth_backend=None,
-                 logger=None):
-
+    def __init__(
+        self,
+        loop=None,
+        max_workers=0,
+        auth_backend=None,
+        logger=None,
+    ):
         self.clients = []
         self.methods = {}
         self.topics = {}
@@ -170,78 +183,74 @@ class JsonRpc(object):
             ('', self.unsubscribe),
         )
 
-    def _add_method(self, method, name='', prefix=''):
+    def _add_method(self, method, name='', prefix='', separator='__'):
         if not callable(method):
             return
 
-        name = name or method.__name__
+        name = name or getattr(method, '__name__', repr(method))
 
         if prefix:
-            name = '{}__{}'.format(prefix, name)
+            name = '{}{}{}'.format(prefix, separator, name)
 
         self.methods[name] = JsonRpcMethod(method)
 
-    def _add_methods_from_object(self, obj, prefix='', ignore=[]):
+    # TODO: `ignore` is useful but unused
+    def _add_methods_from_object(self, obj, prefix='', ignore=None, separator='__'):
+        if ignore is None:
+            ignore = []
+
         for attr_name in dir(obj):
             if attr_name.startswith('_') or attr_name in ignore:
                 continue
 
-            self._add_method(getattr(obj, attr_name), prefix=prefix)
+            self._add_method(getattr(obj, attr_name), prefix=prefix, separator=separator)
 
-    def _add_methods_by_name(self, name, prefix=''):
+    def _add_methods_by_name(self, name, prefix='', separator='__'):
         try:
             module = importlib.import_module(name)
-            self._add_methods_from_object(module, prefix=prefix)
+            self._add_methods_from_object(module, prefix=prefix, separator=separator)
 
         except ImportError:
             name = name.split('.')
             module = importlib.import_module('.'.join(name[:-1]))
 
-            self._add_method(getattr(module, name[-1]), prefix=prefix)
+            self._add_method(getattr(module, name[-1]), prefix=prefix, separator=separator)
 
-    def add_methods(self, *args, prefix=''):
-        for arg in args:
-            if not (type(arg) == tuple and len(arg) >= 2):
+    def add_methods(self, *methods, prefix='', separator='__'):
+        for row in methods:
+            if not (isinstance(row, tuple) and len(row) >= 2):
                 raise ValueError('invalid format')
 
-            if not type(arg[0]) == str:
+            prefix_ = prefix or row[0]
+            if not isinstance(prefix, str):
                 raise ValueError('prefix has to be str')
 
-            prefix_ = prefix or arg[0]
-            method = arg[1]
+            method = row[1]
 
             if callable(method):
-                name = arg[2] if len(arg) >= 3 else ''
-                self._add_method(method, name=name, prefix=prefix_)
+                name = row[2] if len(row) >= 3 else ''
+                self._add_method(method, name=name, prefix=prefix_, separator=separator)
 
             elif type(method) == str:
-                self._add_methods_by_name(method, prefix=prefix_)
+                self._add_methods_by_name(method, prefix=prefix_, separator=separator)
 
             else:
-                self._add_methods_from_object(method, prefix=prefix_)
+                self._add_methods_from_object(method, prefix=prefix_, separator=separator)
 
     def add_topics(self, *topics):
         for topic in topics:
-            if type(topic) not in (str, tuple):
+            if not isinstance(topic, (str, tuple)):
                 raise ValueError('Topic has to be string or tuple')
-
-            # find name
-            if type(topic) == str:
-                name = topic
-
-            else:
-                name = topic[0]
 
             # find and apply decorators
             def func(request):
                 return True
 
-            if type(topic) == tuple and len(topic) > 1:
-                decorators = topic[1]
-
-                if not type(decorators) == tuple:
-                    decorators = (decorators, )
-
+            # find name
+            if isinstance(topic, str):
+                name = topic
+            else:
+                name, *decorators = topic
                 for decorator in decorators:
                     func = decorator(func)
 
@@ -260,17 +269,15 @@ class JsonRpc(object):
 
         # handle request
         if request.method == 'GET':
-
             # handle Websocket
             if request.headers.get('upgrade', '').lower() == 'websocket':
-                return (await self.handle_websocket_request(request))
+                return await self.handle_websocket_request(request)
 
             # handle GET
-            else:
-                return aiohttp.web.Response(status=405)
+            return aiohttp.web.Response(status=405)
 
         # handle POST
-        elif request.method == 'POST':
+        if request.method == 'POST':
             return aiohttp.web.Response(status=405)
 
     async def _ws_send_str(self, client, string):
@@ -296,12 +303,17 @@ class JsonRpc(object):
 
             # check if method is available
             if msg.data['method'] not in http_request.methods:
-                self.logger.debug('method %s is unknown or restricted',
-                                  msg.data['method'])
+                self.logger.debug(
+                    'method %s is unknown or restricted',
+                    msg.data['method'],
+                )
 
-                await self._ws_send_str(http_request, encode_error(
-                    RpcMethodNotFoundError(msg_id=msg.data.get('id', None))
-                ))
+                await self._ws_send_str(
+                    http_request,
+                    encode_error(
+                        RpcMethodNotFoundError(msg_id=msg.data.get('id')),
+                    ),
+                )
 
                 return
 
@@ -324,35 +336,44 @@ class JsonRpc(object):
 
                 await self._ws_send_str(http_request, result)
 
-            except (RpcGenericServerDefinedError,
-                    RpcInvalidRequestError,
-                    RpcInvalidParamsError) as error:
+            except (
+                RpcGenericServerDefinedError,
+                RpcInvalidRequestError,
+                RpcInvalidParamsError,
+            ) as error:
 
                 await self._ws_send_str(
                     http_request,
-                    encode_error(error, id=msg.data.get('id', None))
+                    encode_error(error, id=msg.data.get('id')),
                 )
 
             except Exception as error:
                 self.logger.error(error, exc_info=True)
 
-                await self._ws_send_str(http_request, encode_error(
-                    RpcInternalError(msg_id=msg.data.get('id', None))
-                ))
+                await self._ws_send_str(
+                    http_request,
+                    encode_error(
+                        RpcInternalError(msg_id=msg.data.get('id')),
+                    ),
+                )
 
         # handle result
         elif msg.type == JsonRpcMsgTyp.RESULT:
             self.logger.debug('msg gets handled as result')
 
             http_request.pending[msg.data['id']].set_result(
-                msg.data['result'])
+                msg.data['result'],
+            )
 
         else:
             self.logger.debug('unsupported msg type (%s)', msg.type)
 
-            await self._ws_send_str(http_request, encode_error(
-                RpcInvalidRequestError(msg_id=msg.data.get('id', None))
-            ))
+            await self._ws_send_str(
+                http_request,
+                encode_error(
+                    RpcInvalidRequestError(msg_id=msg.data.get('id')),
+                ),
+            )
 
     async def handle_websocket_request(self, http_request):
         http_request.msg_id = 0
@@ -387,7 +408,7 @@ class JsonRpc(object):
         return list(request.subscriptions)
 
     async def subscribe(self, request):
-        if type(request.params) is not list:
+        if not isinstance(request.params, list):
             request.params = [request.params]
 
         for topic in request.params:
@@ -400,7 +421,7 @@ class JsonRpc(object):
         return list(request.subscriptions)
 
     async def unsubscribe(self, request):
-        if type(request.params) is not list:
+        if not isinstance(request.params, list):
             request.params = [request.params]
 
         for topic in request.params:
@@ -410,7 +431,7 @@ class JsonRpc(object):
         return list(request.subscriptions)
 
     def filter(self, topics):
-        if type(topics) is not list:
+        if not isinstance(topics, list):
             topics = [topics]
 
         topics = set(topics)
@@ -423,18 +444,15 @@ class JsonRpc(object):
                 yield client
 
     async def notify(self, topic, data=None, state=False):
-        if type(topic) is not str:
+        if not isinstance(topic, str):
             raise ValueError
 
         if state:
             self.state[topic] = data
 
-        notification = None
-
+        notification = encode_notification(topic, data)
         for client in self.filter(topic):
             try:
-                if notification is None:
-                    notification = encode_notification(topic, data)
                 await self._ws_send_str(client, notification)
             except Exception as e:
                 self.logger.exception(e)
