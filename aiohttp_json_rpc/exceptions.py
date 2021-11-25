@@ -54,8 +54,8 @@ class RpcError(Exception):
             -32700: RpcParseError,
             **{
                 error_code: RpcGenericServerDefinedError
-                for error_code in range(-32000, -32100, -1),
-            }
+                for error_code in range(-32000, -32100, -1)
+            },
         }
 
         for subclass in cls.__subclasses__():

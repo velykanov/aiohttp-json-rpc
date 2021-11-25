@@ -297,7 +297,15 @@ class JsonRpc(object):
 
             return
 
-        # handle requests
+        # TODO: make a single response encoder
+        if isinstance(msg, list):
+            response = await self._handle_batch_request(http_request, msg)
+        else:
+            response = await self._handle_single_request(http_request, msg)
+
+        await self._ws_send_str(http_request, response)
+
+    async def _handle_single_request(self, http_request, msg):
         if msg.type == JsonRpcMsgTyp.REQUEST:
             self.logger.debug('msg gets handled as request')
 
@@ -308,14 +316,7 @@ class JsonRpc(object):
                     msg.data['method'],
                 )
 
-                await self._ws_send_str(
-                    http_request,
-                    encode_error(
-                        RpcMethodNotFoundError(msg_id=msg.data.get('id')),
-                    ),
-                )
-
-                return
+                return encode_error(RpcMethodNotFoundError(msg_id=msg.data.get('id')))
 
             # call method
             raw_response = getattr(
@@ -334,28 +335,19 @@ class JsonRpc(object):
                 if not raw_response:
                     result = encode_result(msg.data['id'], result)
 
-                await self._ws_send_str(http_request, result)
+                return result
 
             except (
                 RpcGenericServerDefinedError,
                 RpcInvalidRequestError,
                 RpcInvalidParamsError,
             ) as error:
-
-                await self._ws_send_str(
-                    http_request,
-                    encode_error(error, id=msg.data.get('id')),
-                )
+                return encode_error(error, id=msg.data.get('id'))
 
             except Exception as error:
                 self.logger.error(error, exc_info=True)
 
-                await self._ws_send_str(
-                    http_request,
-                    encode_error(
-                        RpcInternalError(msg_id=msg.data.get('id')),
-                    ),
-                )
+                return encode_error(RpcInternalError(msg_id=msg.data.get('id')))
 
         # handle result
         elif msg.type == JsonRpcMsgTyp.RESULT:
@@ -368,12 +360,15 @@ class JsonRpc(object):
         else:
             self.logger.debug('unsupported msg type (%s)', msg.type)
 
-            await self._ws_send_str(
-                http_request,
-                encode_error(
-                    RpcInvalidRequestError(msg_id=msg.data.get('id')),
-                ),
-            )
+            return encode_error(RpcInvalidRequestError(msg_id=msg.data.get('id')))
+
+    # TODO: remove this ugly response builder
+    async def _handle_batch_request(self, http_request, msgs):
+        responses = [
+            await self._handle_single_request(http_request, msg) for msg in msgs
+        ]
+
+        return '[{}]'.format(','.join(responses))
 
     async def handle_websocket_request(self, http_request):
         http_request.msg_id = 0
