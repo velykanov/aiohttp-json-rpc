@@ -132,7 +132,7 @@ async def test_type_validators(rpc_context):
 
     @validate(a=int)
     async def method(a):
-        assert type(a) == int
+        assert isinstance(a, int)
 
     rpc_context.rpc.add_methods(
         ('', method),
@@ -150,9 +150,9 @@ async def test_type_validators(rpc_context):
 async def test_function_validators(rpc_context):
     from aiohttp_json_rpc import RpcInvalidParamsError, validate
 
-    @validate(a=lambda a: type(a) == int)
+    @validate(a=lambda a: isinstance(a, int))
     async def method(a):
-        assert type(a) == int
+        assert isinstance(a, int)
 
     rpc_context.rpc.add_methods(
         ('', method),

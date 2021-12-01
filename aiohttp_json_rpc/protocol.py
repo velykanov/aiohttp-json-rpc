@@ -1,3 +1,4 @@
+import enum
 from collections import namedtuple
 import json
 
@@ -12,7 +13,8 @@ JSONRPC = '2.0'
 JsonRpcMsg = namedtuple('JsonRpcMsg', ['type', 'data'])
 
 
-class JsonRpcMsgTyp:
+@enum.unique
+class JsonRpcMsgTyp(enum.IntEnum):
     REQUEST = 10
     NOTIFICATION = 11
     RESPONSE = 20
@@ -151,7 +153,7 @@ def decode_msg(raw_msg):
 
 
 def encode_request(method, id=None, params=None):
-    if type(method) is not str:
+    if not isinstance(method, str):
         raise ValueError('method has to be a string')
 
     msg = {

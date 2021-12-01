@@ -6,6 +6,9 @@ import logging
 import inspect
 import types
 
+from aiohttp.web_response import Response
+from aiohttp.web_ws import WebSocketResponse
+
 from .communicaton import JsonRpcRequest, SyncJsonRpcRequest
 from .threading import ThreadedWorkerPool
 from .auth import DummyAuthBackend
@@ -231,7 +234,7 @@ class JsonRpc(object):
                 name = row[2] if len(row) >= 3 else ''
                 self._add_method(method, name=name, prefix=prefix_, separator=separator)
 
-            elif type(method) == str:
+            elif isinstance(method, str):
                 self._add_methods_by_name(method, prefix=prefix_, separator=separator)
 
             else:
@@ -274,11 +277,11 @@ class JsonRpc(object):
                 return await self.handle_websocket_request(request)
 
             # handle GET
-            return aiohttp.web.Response(status=405)
+            return Response(status=405)
 
         # handle POST
         if request.method == 'POST':
-            return aiohttp.web.Response(status=405)
+            return Response(status=405)
 
     async def _ws_send_str(self, client, string):
         if client.ws._writer.transport.is_closing():
@@ -375,7 +378,7 @@ class JsonRpc(object):
         http_request.pending = {}
 
         # prepare and register websocket
-        ws = aiohttp.web_ws.WebSocketResponse()
+        ws = WebSocketResponse()
         await ws.prepare(http_request)
         http_request.ws = ws
         self.clients.append(http_request)
