@@ -22,7 +22,7 @@ class JsonRpcMsgTyp(enum.IntEnum):
     ERROR = 22
 
 
-def decode_msg(raw_msg):
+def decode_msg(raw_msg, json_package=json):
     """
     Decodes jsonrpc 2.0 raw message objects into JsonRpcMsg objects.
 
@@ -78,13 +78,16 @@ def decode_msg(raw_msg):
     """
 
     try:
-        msg_data = json.loads(raw_msg)
+        msg_data = json_package.loads(raw_msg)
     except ValueError:
         raise RpcParseError
 
     # TODO: inconvenient data conversion
     if isinstance(msg_data, list):
-        return [decode_msg(json.dumps(msg_piece)) for msg_piece in msg_data]
+        return [
+            decode_msg(json_package.dumps(msg_piece), json_package=json_package)
+            for msg_piece in msg_data
+        ]
 
     # check jsonrpc version
     if 'jsonrpc' not in msg_data or msg_data['jsonrpc'] != JSONRPC:
@@ -152,7 +155,7 @@ def decode_msg(raw_msg):
     return JsonRpcMsg(msg_type, msg_data)
 
 
-def encode_request(method, id=None, params=None):
+def encode_request(method, id=None, params=None, json_package=json):
     if not isinstance(method, str):
         raise ValueError('method has to be a string')
 
@@ -167,24 +170,24 @@ def encode_request(method, id=None, params=None):
     if params is not None:
         msg['params'] = params
 
-    return json.dumps(msg)
+    return json_package.dumps(msg)
 
 
-def encode_notification(method, params=None):
-    return encode_request(method, id=None, params=params)
+def encode_notification(method, params=None, json_package=json):
+    return encode_request(method, id=None, params=params, json_package=json_package)
 
 
-def encode_result(id, result):
+def encode_result(id, result, json_package=json):
     msg = {
         'jsonrpc': JSONRPC,
         'id': id,
         'result': result
     }
 
-    return json.dumps(msg)
+    return json_package.dumps(msg)
 
 
-def encode_error(error, id=None):
+def encode_error(error, id=None, json_package=json):
     if not isinstance(error, RpcError):
         raise ValueError
 
@@ -205,7 +208,7 @@ def encode_error(error, id=None):
     if error.data is not None:
         msg['error']['data'] = error.data
 
-    return json.dumps(msg)
+    return json_package.dumps(msg)
 
 
 def decode_error(msg: JsonRpcMsg):

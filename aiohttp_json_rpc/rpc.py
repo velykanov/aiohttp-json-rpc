@@ -1,3 +1,4 @@
+import json
 from copy import copy
 import asyncio
 import aiohttp
@@ -34,8 +35,9 @@ from .exceptions import (
 class JsonRpcMethod:
     CREDENTIAL_KEYS = ['request', 'worker_pool']
 
-    def __init__(self, method):
+    def __init__(self, method, json_package=json):
         self.method = method
+        self._json_package = json_package
 
         # method introspection
         try:
@@ -142,6 +144,7 @@ class JsonRpcMethod:
                     rpc=rpc,
                     http_request=http_request,
                     msg=msg,
+                    json_package=self._json_package,
                 )
 
             else:
@@ -149,6 +152,7 @@ class JsonRpcMethod:
                     rpc=rpc,
                     http_request=http_request,
                     msg=msg,
+                    json_package=self._json_package,
                 )
 
         if 'worker_pool' in self.argspec.args:
@@ -161,13 +165,14 @@ class JsonRpcMethod:
         return await rpc.worker_pool.run(self.method, **method_params)
 
 
-class JsonRpc(object):
+class JsonRpc:
     def __init__(
         self,
         loop=None,
         max_workers=0,
         auth_backend=None,
         logger=None,
+        json_package=json,
     ):
         self.clients = []
         self.methods = {}
@@ -177,6 +182,7 @@ class JsonRpc(object):
         self.auth_backend = auth_backend or DummyAuthBackend()
         self.loop = loop or asyncio.get_event_loop()
         self.worker_pool = ThreadedWorkerPool(max_workers=max_workers)
+        self._json_package = json_package
 
         self.add_methods(
             ('', self.get_methods),
@@ -195,7 +201,7 @@ class JsonRpc(object):
         if prefix:
             name = '{}{}{}'.format(prefix, separator, name)
 
-        self.methods[name] = JsonRpcMethod(method)
+        self.methods[name] = JsonRpcMethod(method, json_package=self._json_package)
 
     # TODO: `ignore` is useful but unused
     def _add_methods_from_object(self, obj, prefix='', ignore=None, separator='__'):
@@ -292,11 +298,14 @@ class JsonRpc(object):
 
     async def _handle_rpc_msg(self, http_request, raw_msg):
         try:
-            msg = decode_msg(raw_msg.data)
+            msg = decode_msg(raw_msg.data, json_package=self._json_package)
             self.logger.debug('message decoded: %s', msg)
 
         except RpcError as error:
-            await self._ws_send_str(http_request, encode_error(error))
+            await self._ws_send_str(
+                http_request,
+                encode_error(error, json_package=self._json_package),
+            )
 
             return
 
@@ -319,7 +328,10 @@ class JsonRpc(object):
                     msg.data['method'],
                 )
 
-                return encode_error(RpcMethodNotFoundError(msg_id=msg.data.get('id')))
+                return encode_error(
+                    RpcMethodNotFoundError(msg_id=msg.data.get('id')),
+                    json_package=self._json_package,
+                )
 
             # call method
             raw_response = getattr(
@@ -336,7 +348,11 @@ class JsonRpc(object):
                 )
 
                 if not raw_response:
-                    result = encode_result(msg.data['id'], result)
+                    result = encode_result(
+                        msg.data['id'],
+                        result,
+                        json_package=self._json_package,
+                    )
 
                 return result
 
@@ -345,12 +361,19 @@ class JsonRpc(object):
                 RpcInvalidRequestError,
                 RpcInvalidParamsError,
             ) as error:
-                return encode_error(error, id=msg.data.get('id'))
+                return encode_error(
+                    error,
+                    id=msg.data.get('id'),
+                    json_package=self._json_package,
+                )
 
             except Exception as error:
                 self.logger.error(error, exc_info=True)
 
-                return encode_error(RpcInternalError(msg_id=msg.data.get('id')))
+                return encode_error(
+                    RpcInternalError(msg_id=msg.data.get('id')),
+                    json_package=self._json_package,
+                )
 
         # handle result
         elif msg.type == JsonRpcMsgTyp.RESULT:
@@ -363,7 +386,10 @@ class JsonRpc(object):
         else:
             self.logger.debug('unsupported msg type (%s)', msg.type)
 
-            return encode_error(RpcInvalidRequestError(msg_id=msg.data.get('id')))
+            return encode_error(
+                RpcInvalidRequestError(msg_id=msg.data.get('id')),
+                json_package=self._json_package,
+            )
 
     # TODO: remove this ugly response builder
     async def _handle_batch_request(self, http_request, msgs):
@@ -448,7 +474,7 @@ class JsonRpc(object):
         if state:
             self.state[topic] = data
 
-        notification = encode_notification(topic, data)
+        notification = encode_notification(topic, data, json_package=self._json_package)
         for client in self.filter(topic):
             try:
                 await self._ws_send_str(client, notification)

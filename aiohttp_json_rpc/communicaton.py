@@ -1,13 +1,16 @@
 import asyncio
+import json
 
 from .protocol import encode_request, encode_notification
 
 
 class JsonRpcRequest:
-    def __init__(self, http_request, rpc, msg):
+    def __init__(self, http_request, rpc, msg, json_package=json):
         self.http_request = http_request
         self.rpc = rpc
         self.msg = msg
+
+        self._json_package = json_package
 
     @property
     def ws(self):
@@ -59,7 +62,12 @@ class JsonRpcRequest:
         self.http_request.msg_id += 1
         self.http_request.pending[msg_id] = asyncio.Future()
 
-        request = encode_request(method, id=msg_id, params=params)
+        request = encode_request(
+            method,
+            id=msg_id,
+            params=params,
+            json_package=self._json_package,
+        )
 
         await self.http_request.ws.send_str(request)
 
@@ -85,7 +93,9 @@ class JsonRpcRequest:
         )
 
     async def send_notification(self, method, params=None):
-        await self.ws.send_str(encode_notification(method, params))
+        await self.ws.send_str(
+            encode_notification(method, params, json_package=self._json_package),
+        )
 
 
 class SyncJsonRpcRequest(JsonRpcRequest):

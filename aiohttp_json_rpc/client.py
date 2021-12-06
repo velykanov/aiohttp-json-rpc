@@ -1,3 +1,5 @@
+import json
+
 import aiohttp
 import asyncio
 import logging
@@ -28,6 +30,7 @@ class JsonRpcClient:
         url=None,
         cookies=None,
         loop=None,
+        json_package=json,
     ):
         self._pending = {}
         self._msg_id = 0
@@ -37,6 +40,7 @@ class JsonRpcClient:
         self._autoconnect_url = URL(url) if url is not None else url
         self._autoconnect_cookies = cookies
         self._loop = loop or asyncio.get_event_loop()
+        self._json_package = json_package
 
         self._id = JsonRpcClient._client_id
         JsonRpcClient._client_id += 1
@@ -64,11 +68,16 @@ class JsonRpcClient:
                 exceptions.RpcMethodNotFoundError(
                     msg_id=msg.data.get('id'),
                 ),
+                json_package=self._json_package,
             )
 
         else:
             result = await self._methods[msg.data['method']](msg.data['params'])
-            response = encode_result(msg.data['id'], result)
+            response = encode_result(
+                msg.data['id'],
+                result,
+                json_package=self._json_package,
+            )
 
         self._logger.debug('#%s: > %s', self._id, response)
         await self._ws.send_str(response)
@@ -86,7 +95,7 @@ class JsonRpcClient:
                 if raw_msg.type != aiohttp.WSMsgType.text:
                     continue
 
-                msgs = decode_msg(raw_msg.data)
+                msgs = decode_msg(raw_msg.data, json_package=self._json_package)
                 if not isinstance(msgs, list):
                     msgs = [msgs]
 
@@ -187,7 +196,7 @@ class JsonRpcClient:
             self._msg_id += 1
 
         self._pending[id] = asyncio.Future()
-        msg = encode_request(method, id=id, params=params)
+        msg = encode_request(method, id=id, params=params, json_package=self._json_package)
 
         self._logger.debug('#%s: > %s', self._id, msg)
         await self._ws.send_str(msg)
