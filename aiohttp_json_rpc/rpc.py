@@ -158,6 +158,9 @@ class JsonRpcMethod:
         if 'worker_pool' in self.argspec.args:
             method_params['worker_pool'] = rpc.worker_pool
 
+        if 'user' in self.argspec.args:
+            method_params['user'] = getattr(http_request, 'user', None)
+
         # run method
         if asyncio.iscoroutinefunction(self.method):
             return await self.method(**method_params)
