@@ -33,7 +33,7 @@ from .exceptions import (
 
 
 class JsonRpcMethod:
-    CREDENTIAL_KEYS = ['request', 'worker_pool']
+    CREDENTIAL_KEYS = ['request', 'worker_pool', 'user']
 
     def __init__(self, method, json_package=json):
         self.method = method
@@ -105,10 +105,7 @@ class JsonRpcMethod:
             params = [params]
 
         if isinstance(params, list):
-            params = {
-                self.args[i]: v for i, v in enumerate(params)
-                if i < len(self.args)
-            }
+            params = dict(zip(self.args, params))
 
         # required args
         for i in self.required_args:
