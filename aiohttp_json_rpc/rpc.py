@@ -173,6 +173,8 @@ class JsonRpc:
         auth_backend=None,
         logger=None,
         json_package=json,
+        *,
+        ws_response_kwargs=None,
     ):
         self.clients = []
         self.methods = {}
@@ -183,6 +185,7 @@ class JsonRpc:
         self.loop = loop or asyncio.get_event_loop()
         self.worker_pool = ThreadedWorkerPool(max_workers=max_workers)
         self._json_package = json_package
+        self._ws_response_kwargs = ws_response_kwargs or {}
 
         self.add_methods(
             ('', self.get_methods),
@@ -404,7 +407,8 @@ class JsonRpc:
         http_request.pending = {}
 
         # prepare and register websocket
-        ws = WebSocketResponse()
+        # TODO: not sure if that's a good design decision
+        ws = WebSocketResponse(**self._ws_response_kwargs)
         await ws.prepare(http_request)
         http_request.ws = ws
         self.clients.append(http_request)
