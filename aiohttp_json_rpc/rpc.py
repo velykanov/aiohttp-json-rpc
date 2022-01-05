@@ -419,6 +419,13 @@ class JsonRpc:
             self.logger.debug('raw msg received: %s', raw_msg.data)
             self.loop.create_task(self._handle_rpc_msg(http_request, raw_msg))
 
+        self.logger.debug(
+            'ws closed, reason: (%s, %s, %s)',
+            ws.reason,
+            ws.close_code,
+            ws.exception(),
+        )
+
         self.clients.remove(http_request)
         return ws
 
