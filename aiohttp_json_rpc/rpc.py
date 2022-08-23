@@ -290,7 +290,14 @@ class JsonRpc:
 
         # handle POST
         if request.method == 'POST':
-            return Response(status=405)
+            if request.content_type != 'application/json':
+                # unsupported content type
+                return Response(status=415)
+
+            return await self.handle_post_request(request)
+
+        # TODO: probably respond differently for HEAD and/or OPTIONS
+        return Response(status=405)
 
     async def _ws_send_str(self, client, string):
         if client.ws._writer.transport.is_closing():
@@ -401,6 +408,17 @@ class JsonRpc:
         ]
 
         return '[{}]'.format(','.join(responses))
+
+    async def handle_post_request(self, http_request):
+        # TODO: authorize
+        # load text, we need it for decoder
+        data = await http_request.text()
+        msg = decode_msg(data, json_package=self._json_package)
+
+        if isinstance(data, list):
+            return await self._handle_batch_request(http_request, msg)
+
+        return await self._handle_single_request(http_request, msg)
 
     async def handle_websocket_request(self, http_request):
         http_request.msg_id = 0
